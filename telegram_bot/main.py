@@ -5,7 +5,7 @@ import os
 import re
 import sys
 import traceback
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 # import openai
 from sys import stdout
 from unicodedata import normalize
@@ -14,10 +14,10 @@ import pytz
 from completion.claude_completion_service import ClaudeCompletionService
 from completion.completion_service import CompletionService
 from dotenv import load_dotenv
-from telegram import Bot, Update
+from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (Application, ApplicationBuilder, CommandHandler,
-                          ContextTypes, MessageHandler, filters)
+                          ContextTypes)
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
@@ -43,7 +43,6 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
-
 # Init Application
 app = ApplicationBuilder().token(TELEGRAM_BOT_API_TOKEN).build()
 
@@ -54,16 +53,29 @@ client = TelegramClient(
     TELEGRAM_APP_API_HASH)
 app = Application.builder().token(TELEGRAM_BOT_API_TOKEN).build()
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a welcome message when the command /start is issued."""
     logger.info("GET - /start")
-    await context.bot.send_message(chat_id=update.effective_chat.id, text='Hi! I am a summary bot. Invite me into your group and I will summarize them for you.')
+    await context.bot.send_message(chat_id=update.effective_chat.id,
+                                   text='Hi! I am a summary bot. '
+                                        'Invite me into your group and '
+                                        'I will summarize them for you.')
 
 
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a help message when the command /help is issued."""
     logger.info("GET - /help")
-    await context.bot.send_message(chat_id=update.effective_chat.id, text='Following command are available: \n /start - Start the bot \n /help - Show this help message \n /echo [MESSAGE] - Echo the user message \n /show_chats - Show all chats the bot is currently in \n /set_chat_name [CHAT NAME] - Set the chat name for the bot \n /summary - Summarize the chat')
+    await context.bot.send_message(chat_id=update.effective_chat.id,
+                                   text='Following command are available'
+                                        ': \n /start - Start the bot \n '
+                                        '/help - Show this help message \n '
+                                        '/echo [MESSAGE] - Echo the user message \n '
+                                        '/show_chats - Show all chats the bot '
+                                        'is currently in \n '
+                                        '/set_chat_name [CHAT NAME] -'
+                                        ' Set the chat name for the bot \n '
+                                        '/summary - Summarize the chat')
 
 
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -90,7 +102,8 @@ async def set_chat_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await client.connect()
         if not await client.is_user_authorized():
             logger.error("User is not authorized. Please check your session string.")
-            await update.effective_message.reply_text("Error: Bot is not authorized. Please check the session string.")
+            await update.effective_message.reply_text("Error: Bot is not authorized. "
+                                                      "Please check the session string.")
             return
 
         if len(context.args) == 0:
@@ -107,7 +120,8 @@ async def set_chat_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 dialog_id = dialog.id
                 logger.info(f"Set dialog ID as: {dialog_id}")
                 dialog_found = True
-                await update.effective_message.reply_text(f"Chat set to: {dialog.title} (ID: {dialog.id})")
+                await update.effective_message.reply_text(f"Chat set to: {dialog.title} "
+                                                          f"(ID: {dialog.id})")
                 break
 
         if not dialog_found:
@@ -119,6 +133,7 @@ async def set_chat_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         await client.disconnect()
 
+
 # Добавьте эту функцию для отладки
 async def list_dialogs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """List all available dialogs."""
@@ -128,7 +143,8 @@ async def list_dialogs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await client.connect()
         if not await client.is_user_authorized():
             logger.error("User is not authorized. Please check your session string.")
-            await update.effective_message.reply_text("Error: Bot is not authorized. Please check the session string.")
+            await update.effective_message.reply_text("Error: Bot is not authorized. "
+                                                      "Please check the session string.")
             return
 
         dialogs = []
@@ -136,7 +152,9 @@ async def list_dialogs(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dialogs.append(f"{dialog.title} (ID: {dialog.id})")
 
         if dialogs:
-            await update.effective_message.reply_text("Available chats:\n" + "\n".join(dialogs[:10]))  # Ограничим вывод первыми 10 чатами
+            await update.effective_message.reply_text(
+                # Ограничим вывод первыми 10 чатами
+                "Available chats:\n" + "\n".join(dialogs[:10]))
         else:
             await update.effective_message.reply_text("No chats found.")
 
@@ -184,7 +202,8 @@ async def get_messages_from_telegram_api():
                         # 'channel_id': channel_to_parse,
                     })
             else:
-                logger.info(f"Reached message older than 24 hours. Total messages processed: {message_count}")
+                logger.info(f"Reached message older than 24 hours. "
+                            f"Total messages processed: {message_count}")
                 break
 
         logger.info(f"Retrieved {len(recent_messages)} messages")
@@ -195,6 +214,7 @@ async def get_messages_from_telegram_api():
         return []
     finally:
         await client.disconnect()
+
 
 # remove whitespace character from message
 
@@ -211,18 +231,20 @@ def summarize_messages(dialog_id, chat_messages, completion_service):
     try:
         if LANGUAGE == "ru":
             instruction = f"""
-Ваша задача - извлечь ключевые моменты из разговора в чате Telegram. 
+Ваша задача - извлечь ключевые моменты из разговора в чате Telegram.
 
 ID_CHAT = {str(dialog_id)[4:] if str(dialog_id).startswith('-100') else str(dialog_id)}.
 
-Из приведенной ниже беседы, разделенной тройными кавычками, 
-сообщения представлены в формате CSV, каждая строка - это отдельное сообщение. 
-Сообщения могут быть на любом языке. 
-Первый столбец - это msg_id, второй столбец - id отправителя, 
-третий столбец - id сообщения, на которое отвечают (будет пустым, если это не ответ на другое сообщение), 
+Из приведенной ниже беседы, разделенной тройными кавычками,
+сообщения представлены в формате CSV, каждая строка - это отдельное сообщение.
+Сообщения могут быть на любом языке.
+Первый столбец - это msg_id, второй столбец - id отправителя,
+третий столбец - id сообщения, на которое отвечают
+(будет пустым, если это не ответ на другое сообщение),
 четвертый столбец - содержание сообщения.
-Пожалуйста, суммируйте сообщения в виде нескольких ключевых моментов 1-2 предоложения на русском языке, каждый момент в следующем формате: 
-<подходящий emoji> <название_темы> (https://t.me/c/<ID_CHAT>/<msg_id>). 
+Пожалуйста, суммируйте сообщения в виде нескольких ключевых моментов
+1-2 предоложения на русском языке, каждый момент в следующем формате:
+<подходящий emoji> <название_темы> (https://t.me/c/<ID_CHAT>/<msg_id>).
 Каждое название_темы должно быть в пределах 1-2 предложений и изложено понятно.
 """
         else:
@@ -237,8 +259,9 @@ Messages can be in any language.
 The first column is the msg_id, the second column is the sender id,
 the third column is the reply message id (will be empty if it doesn't quote and reply to anyone),
 the fourth column is the message content, and the fifth column is the channel_id.
-Please summarize the messages into a few key points (1-2 sentences) in English, each point in the following format:
-<appropriate emoji> <topic_name> (https://t.me/c/<ID_CHAT>/<msg_id>). 
+Please summarize the messages into a few key points (1-2 sentences) in English,
+each point in the following format:
+<appropriate emoji> <topic_name> (https://t.me/c/<ID_CHAT>/<msg_id>).
 Each topic_name must be within 1-2 sentences and should be clearly stated.
 """
 
@@ -254,10 +277,13 @@ Conversation: ```{chat_messages}```
             if chat['msg'] is None:
                 continue
             # channel_id = chat['channel_id']
-            if chat['reply_to_msg_id'] == None:
-                chats_content += f"{chat['msg_id']},{chat['sender']},,{remove_whitespace(chat['msg'])}\n"
+            if chat['reply_to_msg_id'] is None:
+                chats_content += \
+                    f"{chat['msg_id']},{chat['sender']},,{remove_whitespace(chat['msg'])}\n"
             else:
-                chats_content += f"{chat['msg_id']},{chat['sender']},{chat['reply_to_msg_id']},{remove_whitespace(chat['msg'])}\n"
+                chats_content += \
+                    (f"{chat['msg_id']},{chat['sender']},{chat['reply_to_msg_id']},"
+                     f"{remove_whitespace(chat['msg'])}\n")
 
         # Get result from AI
         logger.info(f"Messages to summarize: {messages}")
@@ -268,14 +294,20 @@ Conversation: ```{chat_messages}```
     except Exception as e:
         logging.error(f"Error summarizing messages: {e}")
         traceback.print_exc(file=sys.stdout)
-        return f"Произошла ошибка при суммаризации сообщений: {str(e)}" if LANGUAGE == "ru" else f"An error occurred while summarizing messages: {str(e)}"
+        return (f"Произошла ошибка при суммаризации сообщений: "
+                f"{str(e)}") if LANGUAGE == "ru" else (f"An error occurred while "
+                                                       f"summarizing messages: {str(e)}")
+
 
 async def summarize(update, context, completion_service: CompletionService):
     """Retrieve and send back stored key points."""
     logger.info("Starting summarize function")
 
     if dialog_id == 0:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Please set chat name first.")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Please set chat name first."
+        )
         return
 
     try:
@@ -284,7 +316,10 @@ async def summarize(update, context, completion_service: CompletionService):
         logger.info(f"Retrieved {len(result)} messages")
 
         if not result:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="No messages found to summarize.")
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="No messages found to summarize."
+            )
             return
 
         logger.info("Starting message summarization")
@@ -297,10 +332,12 @@ async def summarize(update, context, completion_service: CompletionService):
 
     except Exception as e:
         logger.error(f"Error in summarize function: {e}")
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"An error occurred while summarizing: {str(e)}")
+        await context.bot.send_message(chat_id=update.effective_chat.id,
+                                       text=f"An error occurred while summarizing: {str(e)}")
 
 
-# From https://github.com/python-telegram-bot/python-telegram-bot/blob/master/examples/errorhandlerbot.py
+# From
+# https://github.com/python-telegram-bot/python-telegram-bot/blob/master/examples/errorhandlerbot.py
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a telegram message to notify the developer."""
     # Log the error before we do anything else, so we can see it even if something breaks.
@@ -331,7 +368,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 if __name__ == '__main__':
-
     # Inject dependencies for completion service
     completion_service = ClaudeCompletionService(
         api_key=CLAUDE_API_KEY, predefined_context="")
@@ -339,8 +375,17 @@ if __name__ == '__main__':
     # Add handlers
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('help', help))
-    app.add_handler(CommandHandler('summary', lambda update,
-                    context: summarize(update, context, completion_service)))
+    app.add_handler(
+        CommandHandler(
+            'summary',
+            lambda update,
+            context: summarize(
+                update,
+                context,
+                completion_service
+            )
+        )
+    )
     app.add_handler(CommandHandler('set_chat_name', set_chat_name))
     app.add_handler(CommandHandler('show_chats', show_chats))
     app.add_handler(CommandHandler('echo', echo))
