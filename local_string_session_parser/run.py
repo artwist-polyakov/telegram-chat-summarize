@@ -1,7 +1,8 @@
-from dotenv import load_dotenv
-from telethon.sync import TelegramClient
-from telethon.sessions import StringSession
 import os
+
+from dotenv import load_dotenv
+from telethon.sessions import StringSession
+from telethon.sync import TelegramClient
 
 load_dotenv()
 

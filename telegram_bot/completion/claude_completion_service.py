@@ -1,6 +1,9 @@
 import logging
+
 import anthropic
+
 from .completion_service import CompletionService
+
 
 class ClaudeCompletionService(CompletionService):
     client = None

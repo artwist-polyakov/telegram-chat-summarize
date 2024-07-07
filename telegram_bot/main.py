@@ -1,26 +1,25 @@
+import html
+import json
+import logging
 import os
 import re
 import sys
-
-import pytz
-import logging
 import traceback
-import html
-import json
+from datetime import datetime, timedelta, timezone
 # import openai
 from sys import stdout
-from telethon import TelegramClient
-from telegram import Update, Bot
-from telegram.constants import ParseMode
-from telegram.ext import filters, MessageHandler, ContextTypes, CommandHandler, ApplicationBuilder, Application
-from dotenv import load_dotenv
-from datetime import datetime, timedelta, timezone
 from unicodedata import normalize
 
-from telethon.sessions import StringSession
-
-from completion.completion_service import CompletionService
+import pytz
 from completion.claude_completion_service import ClaudeCompletionService
+from completion.completion_service import CompletionService
+from dotenv import load_dotenv
+from telegram import Bot, Update
+from telegram.constants import ParseMode
+from telegram.ext import (Application, ApplicationBuilder, CommandHandler,
+                          ContextTypes, MessageHandler, filters)
+from telethon import TelegramClient
+from telethon.sessions import StringSession
 
 load_dotenv()
 
