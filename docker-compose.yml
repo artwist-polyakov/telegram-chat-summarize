@@ -1,0 +1,11 @@
+version: '3.9'
+
+services:
+  summ_telegram_bot:
+    container_name: summ_telegram_bot
+    build:  ./telegram_bot
+    env_file:
+      - .env
+    volumes:
+      - ./session:/app/session:rw
+    restart: always
