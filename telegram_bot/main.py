@@ -1,5 +1,7 @@
 import os
 import re
+import sys
+
 import pytz
 import logging
 import traceback
@@ -10,10 +12,13 @@ from sys import stdout
 from telethon import TelegramClient
 from telegram import Update, Bot
 from telegram.constants import ParseMode
-from telegram.ext import filters, MessageHandler, ContextTypes, CommandHandler, ApplicationBuilder
+from telegram.ext import filters, MessageHandler, ContextTypes, CommandHandler, ApplicationBuilder, Application
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
 from unicodedata import normalize
+
+from telethon.sessions import StringSession
+
 from completion.completion_service import CompletionService
 from completion.claude_completion_service import ClaudeCompletionService
 
@@ -25,6 +30,9 @@ TELEGRAM_BOT_API_TOKEN = os.getenv('TELEGRAM_BOT_API_TOKEN', "")
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', "")
 CLAUDE_API_KEY = os.getenv('CLAUDE_API_KEY', "")
 DEVELOPER_CHAT_ID = int(os.getenv('DEVELOPER_CHAT_ID', ""))
+TELEGRAM_STRING_SESSION = os.getenv('TELEGRAM_STRING_SESSION', "")
+LANGUAGE = os.getenv('LANGUAGE', 'ru')  # По умолчанию используется русский язык
+
 dialog_id = 0
 
 # Set up logger
@@ -41,8 +49,11 @@ logger.setLevel(logging.INFO)
 app = ApplicationBuilder().token(TELEGRAM_BOT_API_TOKEN).build()
 
 # Init telegram client
-client = TelegramClient('session', TELEGRAM_APP_API_ID, TELEGRAM_APP_API_HASH)
-
+client = TelegramClient(
+    StringSession(TELEGRAM_STRING_SESSION),
+    TELEGRAM_APP_API_ID,
+    TELEGRAM_APP_API_HASH)
+app = Application.builder().token(TELEGRAM_BOT_API_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send a welcome message when the command /start is issued."""
@@ -73,58 +84,111 @@ async def show_chats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def set_chat_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Set the chat name for the bot."""
+    """Set the chat name or ID for the bot."""
     logger.info("GET - /set_chat_name")
 
     try:
-        await client.start()
-        if len(context.args) == 0:
-            await update.effective_message.reply_text(text="Please provide a chat name")
+        await client.connect()
+        if not await client.is_user_authorized():
+            logger.error("User is not authorized. Please check your session string.")
+            await update.effective_message.reply_text("Error: Bot is not authorized. Please check the session string.")
             return
 
-        target_dialog_title = " ".join(context.args)
-        logger.info("Target dialog title: " + target_dialog_title)
+        if len(context.args) == 0:
+            await update.effective_message.reply_text(text="Please provide a chat name or ID")
+            return
 
+        target = " ".join(context.args)
+        logger.info(f"Target: {target}")
+
+        dialog_found = False
         async for dialog in client.iter_dialogs():
-            # logger.info("Dialog: " + dialog.title)
-            if dialog.title == target_dialog_title:
+            if dialog.title == target or str(dialog.id) == target:
                 global dialog_id
                 dialog_id = dialog.id
-                logger.info("Set dialog ID as: " + str(dialog_id))
+                logger.info(f"Set dialog ID as: {dialog_id}")
+                dialog_found = True
+                await update.effective_message.reply_text(f"Chat set to: {dialog.title} (ID: {dialog.id})")
                 break
 
+        if not dialog_found:
+            await update.effective_message.reply_text(f"Chat '{target}' not found.")
+
     except Exception as e:
-        logger.error(f"Error setting chat name: {e}")
+        logger.error(f"Error setting chat: {e}")
+        await update.effective_message.reply_text(f"Error setting chat: {str(e)}")
+    finally:
+        await client.disconnect()
+
+# Добавьте эту функцию для отладки
+async def list_dialogs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List all available dialogs."""
+    logger.info("GET - /list_dialogs")
+
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            logger.error("User is not authorized. Please check your session string.")
+            await update.effective_message.reply_text("Error: Bot is not authorized. Please check the session string.")
+            return
+
+        dialogs = []
+        async for dialog in client.iter_dialogs():
+            dialogs.append(f"{dialog.title} (ID: {dialog.id})")
+
+        if dialogs:
+            await update.effective_message.reply_text("Available chats:\n" + "\n".join(dialogs[:10]))  # Ограничим вывод первыми 10 чатами
+        else:
+            await update.effective_message.reply_text("No chats found.")
+
+    except Exception as e:
+        logger.error(f"Error listing dialogs: {e}")
+        await update.effective_message.reply_text(f"Error listing dialogs: {str(e)}")
+    finally:
+        await client.disconnect()
 
 
 async def get_messages_from_telegram_api():
     """Retrieve all messages from Telegram API within last 24 hours."""
-
+    logger.info(f"Starting to retrieve messages for dialog_id: {dialog_id}")
     try:
-        # Filter out only those messages sent within last 24 hours.
+        await client.connect()
+        if not await client.is_user_authorized():
+            logger.error("User is not authorized in get_messages_from_telegram_api.")
+            return []
+
         recent_messages = []
         tz = pytz.timezone('UTC')
         daily_time_filter = datetime.now().astimezone(tz) - timedelta(days=1)
+        logger.info(f"Fetching messages since: {daily_time_filter}")
+
+        message_count = 0
         async for message in client.iter_messages(dialog_id):
+            message_count += 1
+            if message_count % 10 == 0:
+                logger.info(f"Processed {message_count} messages")
+
             if message.date >= daily_time_filter:
-                # TODO: Maybe we can add image and video support later.
-                if message.text != '':
+                if message.text:
                     recent_messages.append({
                         'msg_id': message.id,
                         'sender': message.sender_id,
                         'reply_to_msg_id': message.reply_to_msg_id,
                         'msg': message.text,
-                        'channel_id': message.peer_id.channel_id,
+                        'channel_id': message.peer_id.channel_id if hasattr(message.peer_id, 'channel_id') else None,
                     })
             else:
-                logger.info("Last message: ")
-                logger.info(message)
+                logger.info(f"Reached message older than 24 hours. Total messages processed: {message_count}")
                 break
 
+        logger.info(f"Retrieved {len(recent_messages)} messages")
         return recent_messages
 
     except Exception as e:
-        logging.error(f"Error retrieving messages from Telegram API: {e}")
+        logger.error(f"Error retrieving messages from Telegram API: {e}")
+        return []
+    finally:
+        await client.disconnect()
 
 # remove whitespace character from message
 
@@ -136,21 +200,40 @@ def remove_whitespace(message):
 
 
 def summarize_messages(dialog_id, chat_messages, completion_service):
-    """Summarize list of text messages using OpenAI service."""
+    """Summarize list of text messages using AI service."""
 
     try:
-        messages = f"""
-Your task is to extract key point from a conversation in telegram chat room. \
+        if LANGUAGE == "ru":
+            instruction = """
+Ваша задача - извлечь ключевые моменты из разговора в чате Telegram. 
 
-From the conversation below, delimited by triple quotes, \
-Message is in csv format, each row is a message. \
-The message will be in chinese or english. \
-The first column is the msg_id, the second column is the sender id, \
-the third column is the reply message id (will be empty if it doesn't quote and reply to anyone), \
-the fourth column is the message content and the fifth column is the channel_id. \
-please summarize the messages into a few key points in traditional chinese, each point is in following format. \
-`<topic_name> (https://t.me/c/<channel_id>/<msg_id>)`. \
-Each topic_name must within 1 or 2 sentences. \
+Из приведенной ниже беседы, разделенной тройными кавычками, 
+сообщения представлены в формате CSV, каждая строка - это отдельное сообщение. 
+Сообщения могут быть на любом языке. 
+Первый столбец - это msg_id, второй столбец - id отправителя, 
+третий столбец - id сообщения, на которое отвечают (будет пустым, если это не ответ на другое сообщение), 
+четвертый столбец - содержание сообщения, а пятый столбец - channel_id.
+Пожалуйста, суммируйте сообщения в виде нескольких ключевых моментов на русском языке, каждый момент в следующем формате: 
+<подходящий emoji> <название_темы> (https://t.me/c/<channel_id>/<msg_id>). 
+Каждое название_темы должно быть в пределах 1-2 предложений и изложено понятно.
+"""
+        else:
+            instruction = """
+Your task is to extract key points from a conversation in a Telegram chat room.
+
+From the conversation below, delimited by triple quotes,
+messages are in CSV format, each row is a message.
+Messages can be in any language.
+The first column is the msg_id, the second column is the sender id,
+the third column is the reply message id (will be empty if it doesn't quote and reply to anyone),
+the fourth column is the message content, and the fifth column is the channel_id.
+Please summarize the messages into a few key points in English, each point in the following format:
+**<topic_name> (https://t.me/c/<channel_id>/<msg_id>)**.
+Each topic_name must be within 1 or 2 sentences.
+"""
+
+        messages = f"""
+{instruction}
 
 Conversation: ```{chat_messages}```
 """
@@ -172,33 +255,37 @@ Conversation: ```{chat_messages}```
     except Exception as e:
         logging.error(f"Error summarizing messages: {e}")
         traceback.print_exc(file=sys.stdout)
+        return f"Произошла ошибка при суммаризации сообщений: {str(e)}"
 
 
 async def summarize(update, context, completion_service: CompletionService):
     """Retrieve and send back stored key points."""
-
-    logger.info("GET - /summarize")
+    logger.info("Starting summarize function")
 
     if dialog_id == 0:
         await context.bot.send_message(chat_id=update.effective_chat.id, text="Please set chat name first.")
         return
 
     try:
-        await client.start()
-
-        # Get messages from Telegram API
+        logger.info("Attempting to retrieve messages")
         result = await get_messages_from_telegram_api()
-        # logger.info("Messages: ")
-        # logger.info(messages)
+        logger.info(f"Retrieved {len(result)} messages")
+
+        if not result:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="No messages found to summarize.")
+            return
+
+        logger.info("Starting message summarization")
+        summarized_text_list = summarize_messages(
+            dialog_id=dialog_id, chat_messages=result, completion_service=completion_service)
+        logger.info("Summarization completed")
+
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=summarized_text_list)
+        logger.info("Summary sent to user")
+
     except Exception as e:
-        logging.error(f"Error connecting to Telegram API: {e}")
-
-    # Summarize messages using OpenAI
-    summarized_text_list = summarize_messages(
-        dialog_id=dialog_id, chat_messages=result, completion_service=completion_service)
-
-    # Send back summarized text as a message to user who requested it
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=summarized_text_list)
+        logger.error(f"Error in summarize function: {e}")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"An error occurred while summarizing: {str(e)}")
 
 
 # From https://github.com/python-telegram-bot/python-telegram-bot/blob/master/examples/errorhandlerbot.py
@@ -245,6 +332,8 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler('set_chat_name', set_chat_name))
     app.add_handler(CommandHandler('show_chats', show_chats))
     app.add_handler(CommandHandler('echo', echo))
+    app.add_handler(CommandHandler('list_dialogs', list_dialogs))
+
     # app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))
     app.add_error_handler(error_handler)
 
