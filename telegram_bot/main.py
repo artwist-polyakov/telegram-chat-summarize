@@ -244,7 +244,7 @@ ID_CHAT = {str(dialog_id)[4:] if str(dialog_id).startswith('-100') else str(dial
 четвертый столбец - содержание сообщения.
 Пожалуйста, суммируйте сообщения в виде нескольких ключевых моментов
 1-2 предоложения на русском языке, каждый момент в следующем формате:
-<подходящий emoji> <название_темы> (https://t.me/c/<ID_CHAT>/<msg_id>).
+<подходящий emoji> <название_темы> (https://t.me/c/<ID_CHAT>/<msg_id>).<пустая строка>
 Каждое название_темы должно быть в пределах 1-2 предложений и изложено понятно.
 """
         else:
@@ -261,7 +261,7 @@ the third column is the reply message id (will be empty if it doesn't quote and 
 the fourth column is the message content, and the fifth column is the channel_id.
 Please summarize the messages into a few key points (1-2 sentences) in English,
 each point in the following format:
-<appropriate emoji> <topic_name> (https://t.me/c/<ID_CHAT>/<msg_id>).
+<appropriate emoji> <topic_name> (https://t.me/c/<ID_CHAT>/<msg_id>). <empty line>
 Each topic_name must be within 1-2 sentences and should be clearly stated.
 """
 
